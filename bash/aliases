@@ -1,0 +1,11 @@
+# eval aliases
+alias evox="python eval_model.py --load_feat  --load_checkpoint --type 'vox' --checkpoint_path checkpoint_voxfull_dataset.pth --tag full_dataset"
+alias emesh="python eval_model.py --load_feat  --load_checkpoint --type 'mesh' --checkpoint_path checkpoint_mesh_February_18_08_37_PM.pth" 
+alias epoint="python eval_model.py --load_feat  --load_checkpoint --type 'point' --tag 1250 --n_points 1250"
+# train aliases
+alias tvox="python train_model.py --type 'vox' --load_feat --min_loss_delta 0.001 --max_patience 30 --max_iter 20000 --tag full_dataset --save_freq 200"
+alias tmesh="python train_model.py --type 'mesh' --load_feat --min_loss_delta 0.001 --max_patience 30 --save_freq 1000 --lr 1e-5 --max_iter 2000"
+alias tpoint="python train_model.py --type 'point' --load_feat --min_loss_delta 0.001 --max_patience 30 --save_freq 100 --lr 1e-5 --tag 1250 --n_points 1250 --max_iter 200"
+
+echo "Assignment 2 aliases set!"
+
