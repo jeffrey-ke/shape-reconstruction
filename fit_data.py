@@ -9,7 +9,7 @@ from pytorch3d.ops import sample_points_from_meshes
 from pytorch3d.structures import Meshes
 import dataset_location
 import torch
-from utils import *
+from myutils import *
 
 
 

@@ -1,4 +1,5 @@
 import argparse
+from copy import deepcopy
 
 from jutils.optim import *
 import torchvision.transforms as transforms
@@ -7,10 +8,10 @@ from torchvision.transforms import ToPILImage
 from jutils.utils import *
 import importlib
 import utils_nn
-import utils
+import myutils
 importlib.reload(utils_nn)
-importlib.reload(utils)
-from utils import *
+importlib.reload(myutils)
+from myutils import *
 
 from utils_nn import *
 import time
@@ -18,7 +19,7 @@ import time
 import dataset_location
 import losses
 import torch
-from model_original import SingleViewto3D
+from model import SingleViewto3D
 
 from pytorch3d.datasets.r2n2.utils import collate_batched_R2N2
 from pytorch3d.ops import sample_points_from_meshes
@@ -29,7 +30,9 @@ torch.multiprocessing.set_sharing_strategy('file_system')
 def get_args_parser():
     parser = argparse.ArgumentParser("Singleto3D", add_help=False)
     # Model parameters
-    parser.add_argument("--arch", default="resnet18", type=str)
+    parser.add_argument("--arch", default="resnet18", choices=["resnet18", "clip", "dino"], type=str)
+    parser.add_argument("--optim", default="a", type=str)
+    parser.add_argument("--not_pretrained", action="store_true")
     parser.add_argument("--lr", default=4e-4, type=float)
     parser.add_argument("--max_iter", default=50000, type=int)
     parser.add_argument("--batch_size", default=64, type=int)
@@ -47,6 +50,10 @@ def get_args_parser():
     parser.add_argument('--min_loss_delta', default=4e-4, type=float)
     parser.add_argument('--max_patience', default=10, type=int)
     parser.add_argument('--tag', default="", type=str)
+    parser.add_argument('--decay', default=0., type=float)
+    parser.add_argument('--anneal', action="store_true")
+    parser.add_argument('--tanh', action="store_true")
+    parser.add_argument('--xavier', action="store_true")
     return parser
 
 
@@ -126,15 +133,27 @@ def train_model(args):
         shuffle=True,
     )
     train_loader = iter(loader)
-
+    def init_weights(m):
+        if isinstance(m, nn.Linear):
+            torch.nn.init.xavier_uniform_(m.weight)
+            m.bias.data.fill_(0.01)
     model = SingleViewto3D(args).float()
-    #model_preprocess = model.preprocess
+    if args.xavier:
+        print("Xavier!!")
+        model.apply(init_weights)
     model.to(args.device)
     model.train()
     # ============ preparing optimizer ... ============
-    params = get_params(model)
-    optimizer = torch.optim.Adam(params, lr=args.lr)  # to use with ViTs
-    #lr_scheduler = cosine_anneal_schedule(optimizer, T_max=args.max_iter)
+    exclude = [] if args.not_pretrained else ["encoder"]
+    params = get_params(model, exclude=exclude)
+    if args.optim == "a":
+        optimizer = torch.optim.Adam(params, lr=args.lr)  # to use with ViTs
+    elif args.optim == "w":
+        optimizer = torch.optim.AdamW(params, lr=args.lr, weight_decay=args.decay)
+    elif args.optim == "r":
+        optimizer = torch.optim.RAdam(params, lr=args.lr, weight_decay=args.decay)
+    if args.anneal == True:
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.max_iter)
     start_iter = 0
     start_time = time.time()
 
@@ -164,19 +183,23 @@ def train_model(args):
         self.normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],std=[0.229, 0.224, 0.225])
         """
         # risk: images_gt might and not be the right shape
+        
         prediction_3d = model(images_gt, args)
         loss = calculate_loss(prediction_3d, ground_truth_3d, args)
 
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
-        #lr_scheduler.step()
+        if args.anneal == True:
+            scheduler.step()
 
         total_time = time.time() - start_time
         iter_time = time.time() - iter_start_time
 
         loss_vis = loss.cpu().item()
         writer = get_writer().add_scalar("Loss", loss_vis, get_step("loss"))
+        if args.anneal:
+            get_writer().add_scalar("Learning rate", scheduler.get_last_lr()[0], get_step("lr"))
         if (step % args.save_freq) == 0 and step > 0:
             print(f"Saving checkpoint at step {step}")
             save_checkpoint(step, model.state_dict(), optimizer.state_dict(), name=f"checkpoint_{args.type}" + args.tag)

@@ -7,3 +7,4 @@ r2n2_shapenet_dataset
 *.swp
 __pycache__
 runs
+r2n2_shapenet_dataset*

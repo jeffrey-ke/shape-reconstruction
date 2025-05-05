@@ -1,4 +1,5 @@
 from torchvision import models as torchvision_models
+import numpy as np
 from jutils.utils import *
 import clip
 from utils_nn import *
@@ -8,6 +9,22 @@ import torch.nn as nn
 import torch
 from pytorch3d.utils import ico_sphere
 import pytorch3d
+class Point(nn.Module):
+    def __init__(self, n_point):
+        super(Point, self).__init__()
+        self.layers =nn.Sequential(
+            nn.Linear(512, 1024),
+            nn.ReLU(),
+            nn.Linear(1024, 2048),
+            nn.ReLU(),
+            nn.Linear(2048, n_point*3),
+        )
+        self.n_point = n_point
+    def forward(self, x):
+        x = self.layers(x)
+        x = x.view(-1, self.n_point, 3)
+        return x
+
 class Voxel3d(nn.Module):
     def __init__(self):
         super(Voxel3d, self).__init__()
@@ -29,9 +46,24 @@ class SingleViewto3D(nn.Module):
         """
         self.encoder = clip
         """
-        self.encoder, self.preprocess = clip.load("ViT-B/32", device=self.device)
+        if args.arch == "resnet18":
+            vision_model = torchvision_models.__dict__[args.arch](pretrained=not args.not_pretrained)
+            self.encoder = torch.nn.Sequential(*(list(vision_model.children())[:-1]))
+            self.normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],std=[0.229, 0.224, 0.225])
+        elif args.arch == "clip":
+            self.transforms = transforms.Compose([
+                transforms.ToPILImage(),
+            ])
+            self.encoder, self.preprocess = clip.load("ViT-B/32", device=self.device)
+        elif args.arch == "dino":
+            self.transforms = transforms.Compose([
+                transforms.Resize((224,224)),
+            ])
+            vitb8 = torch.hub.load('facebookresearch/dino:main', 'dino_vitb8')
+            # going to need a resize in the preprocess
+            self.encoder = vitb8
+            self.last_layer = nn.Linear(768, 512)
 
-        # define decoder
         if args.type == "vox":
             # Input: b x 512
             # Output: b x 32 x 32 x 32
@@ -55,21 +87,23 @@ class SingleViewto3D(nn.Module):
                 nn.ConvTranspose3d(8, 1, kernel_size=1, bias=False),
                 nn.Sigmoid()
             )
+            #self.decoder = Voxel3d()
         elif args.type == "point":
             # Input: b x 512
             # Output: b x args.n_points x 3  
             self.n_point = args.n_points
             # TODO:
-            self.decoder = nn.Sequential(
-                nn.Linear(512, 1024),
-                nn.LeakyReLU(),
-                nn.Linear(1024, 2048),
-                nn.LeakyReLU(),
-                nn.Linear(2048, 4096),
-                nn.LeakyReLU(), 
-                nn.Linear(4096, args.n_points * 3), 
-                nn.Tanh()
-            )        
+            self.decoder = Point(self.n_point)
+            # nn.Sequential(
+            #     nn.Linear(512, 1024),
+            #     nn.LeakyReLU(),
+            #     nn.Linear(1024, 2048),
+            #     nn.LeakyReLU(),
+            #     nn.Linear(2048, 4096),
+            #     nn.LeakyReLU(), 
+            #     nn.Linear(4096, args.n_points * 3), 
+            #     nn.Tanh()
+            # )        
         elif args.type == "mesh":
             # Input: b x 512
             # Output: b x mesh_pred.verts_packed().shape[0] x 3  
@@ -95,9 +129,19 @@ class SingleViewto3D(nn.Module):
         start_time = time.time()
 
         B = images.shape[0]
-
-        encoded_feat = self.encoder.encode_image(images).float()# b x 512
-        # must mean the output of encoder is (B,512,1,1)
+        if args.arch == "resnet18":
+            images_normalize = self.normalize(images.permute(0,3,1,2))
+            encoded_feat = self.encoder(images_normalize).squeeze(-1).squeeze(-1) # b x 512
+        elif args.arch == "clip":
+            topil = transforms.ToPILImage()
+            images = [topil(img.cpu()) for img in images.permute(0,3,1,2)]
+            images = [self.preprocess(img) for img in images]
+            images = torch.tensor(np.stack(images), device=args.device)
+            encoded_feat = self.encoder.encode_image(images).float()# b x 512
+        elif args.arch == "dino":
+            images = self.transforms(images.permute(0,3,1,2))
+            encoded_feat = self.encoder(images)
+            encoded_feat = self.last_layer(encoded_feat)
 
         # call decoder
         if args.type == "vox":
@@ -105,10 +149,13 @@ class SingleViewto3D(nn.Module):
             initial = self.initial(encoded_feat)
             initial = initial.view(-1, 256, 2, 2, 2)
             return self.decoder(initial)
+            # return self.decoder(encoded_feat)
 
         elif args.type == "point":
             # TODO:
-            pointclouds_pred = self.decoder(encoded_feat).view(-1, args.n_points, 3)
+            pointclouds_pred = self.decoder(encoded_feat)#.view(-1, args.n_points, 3)
+            if args.tanh is True:
+                pointclouds_pred = nn.functional.tanh(pointclouds_pred)
             return pointclouds_pred
 
         elif args.type == "mesh":

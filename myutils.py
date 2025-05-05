@@ -1,4 +1,6 @@
 import torch
+import matplotlib.cm as cm  
+import matplotlib.colors as mcolors 
 import matplotlib.pyplot as plt
 from pytorch3d.structures import (
     Meshes,
@@ -141,7 +143,30 @@ def load_cow_mesh(path="data/cow_mesh.obj"):
 
 def to_images(renders):
     return [(image[...,:3] * 255).int().cpu().numpy().astype(np.uint8) for image in renders]
-def gif_up(structure, dir, name, num_views=20, elev=10, dist=5):
+
+def visualize_pointcloud(points, output_path, duration=0.05, steps=60, device="cuda"):
+    points = points.to(device).squeeze(0)
+    dists = torch.norm(points, dim=-1)  # Compute Euclidean distances
+    dists_np = dists.detach().cpu().numpy()
+    norm = mcolors.Normalize(vmin=dists_np.min(), vmax=dists_np.max())
+    colormap = cm.get_cmap("plasma")
+    colors_np = colormap(norm(dists_np))[:, :3]  # Get RGB values
+    color = torch.tensor(colors_np, device=device, dtype=torch.float32)
+
+    point_cloud = pytorch3d.structures.Pointclouds(
+        points=[points], features=[color]
+    ).to(device)
+    elev = torch.full((steps,), 10, device=device)
+    azim = torch.linspace(0, 360, steps, device=device)
+    R, T = look_at_view_transform(dist=2.0, elev=elev, azim=azim)
+    cameras = FoVPerspectiveCameras(R=R, T=T, fov=60, device=device)
+    renderer = get_points_renderer(image_size=512)
+    images = renderer(point_cloud.extend(steps), cameras=cameras)
+    images_np = (images[..., :3].detach().cpu().numpy() * 255).astype(np.uint8)
+    imageio.mimsave(output_path, images_np, duration=duration, loop=0)
+
+
+def gif_up(structure, dir, name, num_views=20, elev=10, dist=2):
     Rs, Ts = pytorch3d.renderer.look_at_view_transform(
                                                         dist=dist,
                                                          elev=elev,

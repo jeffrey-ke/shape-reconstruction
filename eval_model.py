@@ -3,10 +3,10 @@ from copy import deepcopy
 from torchvision.transforms import ToPILImage
 from jutils.utils import pdb, channel_last
 import importlib
-import utils
-importlib.reload(utils)
+import myutils
+importlib.reload(myutils)
 from utils_nn import *
-from utils import *
+from myutils import *
 import time
 import torch
 from model import SingleViewto3D
@@ -26,6 +26,7 @@ import numpy as np
 def get_args_parser():
     parser = argparse.ArgumentParser('Singleto3D', add_help=False)
     parser.add_argument('--arch', default='resnet18', type=str)
+    parser.add_argument("--not_pretrained", action="store_true")
     parser.add_argument('--vis_freq', default=1000, type=int)
     parser.add_argument('--batch_size', default=1, type=int)
     parser.add_argument('--num_workers', default=0, type=int)
@@ -38,23 +39,18 @@ def get_args_parser():
     parser.add_argument('--load_feat', action='store_true') 
     parser.add_argument('--checkpoint_path', type=str)
     parser.add_argument('--tag', default="", type=str)
+    parser.add_argument('--tanh', action="store_true")
     return parser
 
-def preprocess(feed_dict, args, m_preprocess):
+def preprocess(feed_dict, args):
     for k in ['images']:
         feed_dict[k] = feed_dict[k].to(args.device)
 
     images = feed_dict['images'].squeeze(1)
-    images_copy = deepcopy(images)
-    images = images.permute((0,3,1,2))
-    topil = ToPILImage()
-    images = [topil(img.cpu()) for img in images]
-    images = [m_preprocess(img) for img in images]
-    images = torch.tensor(np.stack(images))
     mesh = feed_dict['mesh']
     if args.load_feat:
         images = torch.stack(feed_dict['feats']).to(args.device)
-    return images.cuda(), mesh, images_copy.cpu()
+    return images, mesh 
 
 def save_plot(thresholds, avg_f1_score, args):
     fig = plt.figure()
@@ -171,8 +167,7 @@ def evaluate_model(args):
         read_start_time = time.time()
 
         feed_dict = next(eval_loader)
-        m_prep = model.preprocess
-        images_gt, mesh_gt, image_copy = preprocess(feed_dict, args, m_prep)
+        images_gt, mesh_gt = preprocess(feed_dict, args)
         
 
         #collector.save_feature(images_gt)
@@ -199,15 +194,17 @@ def evaluate_model(args):
         if args.type == "vox":
             #rendering a vox, I guess I should render an image first. 
             dir = "vis/vox" + args.tag
-            image_up(image_copy[0].numpy(), dir,"input_image{}_{}".format(step, args.tag))
+            image_up(images_gt[0].cpu().numpy(), dir,"input_image{}_{}".format(step, args.tag))
             predictions = voxel_to_mesh(predictions[0])
             gif_up(predictions, dir=dir, name="vox{}_{}".format(step, args.tag))
             gif_up(mesh_gt, dir=dir, name="vox_gt{}_{}".format(step, args.tag))
         elif args.type == "point":
-            image_up(images_copy, "vis/point", "input_image{}_{}".format(step, args.tag))
-            predictions = points_to_pointcloud(predictions)
-            gif_up(predictions, dir="vis/point", name="point{}_{}".format(step, args.tag))
-            gif_up(mesh_gt, dir="vis/point", name="point_gt{}_{}".format(step, args.tag))
+            dir = "vis/point" + args.tag
+            image_up(images_gt[0].cpu().numpy(), dir, "input_image{}_{}".format(step, args.tag))
+            visualize_pointcloud(predictions,"{}/{}.gif".format(dir, "point{}_{}".format(step, args.tag)))
+            # predictions = points_to_pointcloud(predictions)
+            # gif_up(predictions, dir=dir, name="point{}_{}".format(step, args.tag))
+            gif_up(mesh_gt, dir=dir, name="point_gt{}_{}".format(step, args.tag))
         elif args.type == "mesh":
             image_up(images_copy, "vis/mesh", "input_image{}_{}".format(step, args.tag))
             mesh_add_texture(predictions)

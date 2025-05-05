@@ -32,10 +32,12 @@ def chamfer_loss(point_cloud_src,point_cloud_tgt):
     # find each point's nearest point
     # each point in src's nearest neighbor in tgt:
     #and chamfer loss needs to be a torch tensor
-    dists1_2,_,_ = knn_points(p1=point_cloud_src, p2=point_cloud_tgt, K=1)  
-    dists2_1,_,_ = knn_points(p1=point_cloud_tgt, p2=point_cloud_src, K=1)  
-    loss_chamfer = torch.mean(dists1_2) + torch.mean(dists2_1)
-    return loss_chamfer
+    dists1_2 = knn_points(p1=point_cloud_src, p2=point_cloud_tgt, K=1).dists[...,0]
+    dists2_1 = knn_points(p1=point_cloud_tgt, p2=point_cloud_src, K=1).dists[...,0]
+    _1 = torch.sum(dists2_1, dim=1)
+    _2 = torch.sum(dists1_2, dim=1)
+    loss = torch.mean(_1 + _2)
+    return loss
 
 def smoothness_loss(mesh_src):
 	# loss_laplacian = 
