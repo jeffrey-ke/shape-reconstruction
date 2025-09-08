@@ -54,17 +54,12 @@ Systematic evaluation across encoder architectures and hyperparameters:
 
 Input images (PNG) and their corresponding 3D reconstructions (GIF):
 
-**Example 1:**
-Input: ![Input 1](results/image1.png) → Output: ![Output 1](results/image4.gif)
-
-**Example 2:**  
-Input: ![Input 2](results/image3.png) → Output: ![Output 2](results/image6.gif)
-
-**Example 3:**
-Input: ![Input 3](results/image8.png) → Output: ![Output 3](results/image13.gif)
-
-**Example 4:**
-Input: ![Input 4](results/image10.png) → Output: ![Output 4](results/image14.gif)
+| Input Image | 3D Reconstruction |
+|-------------|-------------------|
+| ![Input 1](results/image1.png) | ![Output 1](results/image14.gif) |
+| ![Input 3](results/image3.png) | ![Output 6](results/image6.gif) |
+| ![Input 8](results/image8.png) | ![Output 13](results/image4.gif) |
+| ![Input 10](results/image10.png) | ![Output 14](results/image13.gif) |
 
 Models achieve reasonable reconstructions but struggle with fine details and occlusion handling.
 
@@ -79,13 +74,3 @@ Models achieve reasonable reconstructions but struggle with fine details and occ
 
 **Training stability**: 3D convolutions sensitive to architectural changes.
 
-## Usage
-
-```bash
-python train_model.py --type [vox|point|mesh] --arch clip
-python eval_model.py --type [vox|point|mesh] --load_checkpoint
-```
-
-**Dependencies**: PyTorch, PyTorch3D, CLIP
-
-**Code structure**: `model.py` (architectures), `losses.py` (loss functions), `train_model.py` (training), `eval_model.py` (evaluation)
