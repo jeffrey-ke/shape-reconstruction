@@ -1,6 +1,5 @@
 *.pth
 *.swo
-*.gif
 eval_vox_.png
 vis
 r2n2_shapenet_dataset
